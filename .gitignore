@@ -1,5 +1,37 @@
-# Node.js
+# Backend
 node_modules/
 .env
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Frontend)
+CourseAppFrontend/node_modules/
+CourseAppFrontend/android/.gradle/
+CourseAppFrontend/android/app/build/
+CourseAppFrontend/vendor/
+CourseAppFrontend/ios/Pods/
+CourseAppFrontend/ios/build/
+CourseAppFrontend/.env
+CourseAppFrontend/.vscode/
+CourseAppFrontend/.expo/
+
+# === macOS ===
+.DS_Store
+
+# === Logs ===
+*.log
+
+# === IDEs ===
+.vscode/
+.idea/
+*.swp
+
+# === Git ===
+.git/
+
+# === OS/Temp Files ===
+*.tmp
+*.temp
 
 
