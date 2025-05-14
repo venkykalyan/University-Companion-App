@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
-  Alert,
   View,
   Text,
   FlatList,
@@ -12,6 +11,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { getCourses, createCourse } from '../api/api';
 import { Course, RootStackParamList } from '../types';
 import { showToast } from '../utils/toast';
+import { useFocusEffect } from '@react-navigation/native';
+import { getData, storeData } from '../utils/storage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Courses'>;
 
@@ -25,18 +26,35 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
     start_date: '',
     end_date: '',
   });
+  const [isOfflineData, setIsOfflineData] = useState(false);
+
 
   const loadCourses = async () => {
     try {
+      setIsOfflineData(false); 
       setLoading(true);
       const res = await getCourses();
-      setCourses(res.data);
+  
+      if (Array.isArray(res.data)) {
+        setCourses(res.data);
+        await storeData('courses', res.data);
+      } else {
+        throw new Error('Invalid data format');
+      }
     } catch (err) {
-      showToast('Failed to load courses');
+      showToast('Failed to fetch courses, loading from cache');
+      const cached = await getData<Course[]>('courses');
+      if (Array.isArray(cached)) {
+        setCourses(cached);
+        setIsOfflineData(true);
+      } else {
+        setCourses([]);
+      }
     } finally {
       setLoading(false);
     }
   };
+  
 
   const handleAddCourse = async () => {
     const {course_name, start_date, end_date} = newCourse;
@@ -64,9 +82,11 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
     }
   };
 
-  useEffect(() => {
-    loadCourses();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadCourses();
+    }, []),
+  );
 
   const renderSkeleton = () => (
     <View style={styles.card}>
@@ -118,7 +138,7 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
             placeholder="Course Name"
             value={newCourse.course_name}
             onChangeText={text =>
-              setNewCourse(prev => ({ ...prev, course_name: text }))
+              setNewCourse(prev => ({...prev, course_name: text}))
             }
             style={styles.input}
           />
@@ -126,7 +146,7 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
             placeholder="Professor (optional)"
             value={newCourse.professor}
             onChangeText={text =>
-              setNewCourse(prev => ({ ...prev, professor: text }))
+              setNewCourse(prev => ({...prev, professor: text}))
             }
             style={styles.input}
           />
@@ -134,7 +154,7 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
             placeholder="Start Date (YYYY-MM-DD)"
             value={newCourse.start_date}
             onChangeText={text =>
-              setNewCourse(prev => ({ ...prev, start_date: text }))
+              setNewCourse(prev => ({...prev, start_date: text}))
             }
             style={styles.input}
           />
@@ -142,28 +162,31 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
             placeholder="End Date (YYYY-MM-DD)"
             value={newCourse.end_date}
             onChangeText={text =>
-              setNewCourse(prev => ({ ...prev, end_date: text }))
+              setNewCourse(prev => ({...prev, end_date: text}))
             }
             style={styles.input}
           />
           <Button title="Submit" onPress={handleAddCourse} />
         </View>
       )}
+      {!loading && isOfflineData && (
+        <Text style={styles.offlineBanner}>⚠ Offline: Showing cached data</Text>
+      )}
       {loading ? (
         <FlatList
-          data={[1, 2, 3,4,5,6]}
-          keyExtractor={(item) => item.toString()}
+          data={[1, 2, 3, 4, 5, 6]}
+          keyExtractor={item => `skeleton-${item}`}
           renderItem={() => renderSkeleton()}
         />
       ) : courses.length === 0 ? (
-        <Text style={{ marginTop: 20, textAlign: 'center' }}>
+        <Text style={{marginTop: 20, textAlign: 'center'}}>
           No courses found.
         </Text>
       ) : (
         <FlatList
           data={courses}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => renderCourseItem(item)}
+          keyExtractor={item => `course-${item.id}`}
+          renderItem={({item}) => renderCourseItem(item)}
         />
       )}
     </View>
@@ -220,6 +243,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0e0e0',
     borderRadius: 4,
     marginBottom: 10,
+  },
+  offlineBanner: {
+    backgroundColor: '#ffe4b5',
+    color: '#333',
+    textAlign: 'center',
+    padding: 6,
+    borderRadius: 4,
+    marginBottom: 10,
+    fontWeight: '600',
   },
 });
 

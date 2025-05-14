@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, {useState, useCallback} from 'react';
 import {
   View,
   Text,
@@ -13,18 +13,28 @@ import {
   createAssignment,
   updateAssignment,
 } from '../api/api';
-import { Assignment, RootStackParamList } from '../types';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { showToast } from '../utils/toast';
+import {Assignment, RootStackParamList} from '../types';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {showToast} from '../utils/toast';
+import {useFocusEffect} from '@react-navigation/native';
+import { getData, storeData } from '../utils/storage';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Assignments'>;
 
-const AssignmentsScreen: React.FC<Props> = ({ route }) => {
-  const { courseId } = route.params;
+const AssignmentsScreen: React.FC<Props> = ({route}) => {
+  const {courseId} = route.params;
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(
+    null,
+  );
   const [loading, setLoading] = useState<boolean>(true);
+  const [filterStatus, setFilterStatus] = useState<
+    'all' | 'pending' | 'completed'
+  >('all');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [isOfflineData, setIsOfflineData] = useState(false);
+
 
   const [formData, setFormData] = useState({
     title: '',
@@ -34,18 +44,43 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
   const loadAssignments = async () => {
     try {
       setLoading(true);
+      setIsOfflineData(false);
+  
       const res = await getAssignments(courseId);
-      setAssignments(res.data);
+  
+      if (Array.isArray(res.data)) {
+        setAssignments(res.data);
+        await storeData(`assignments-${courseId}`, res.data);
+      } else if (res.data && res.data?.message === "No assignments found for this course") {
+        setAssignments([]);
+        await storeData(`assignments-${courseId}`, []);
+      } else {
+        throw new Error('Invalid data format');
+      }
     } catch (err) {
-        showToast('Failed to fetch assignments');
+      showToast('Failed to fetch from API, loading from cache');
+      const cached = await getData<Assignment[]>(`assignments-${courseId}`);
+      if (Array.isArray(cached)) {
+        setAssignments(cached);
+        setIsOfflineData(true); 
+      } else {
+        setAssignments([]);
+      }
     } finally {
       setLoading(false);
     }
   };
   
-  useEffect(() => {
-    loadAssignments();
-  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAssignments();
+      return () => {
+        setAssignments([]);
+      };
+    }, []),
+  );
+
 
   const handleDelete = async (id: number) => {
     try {
@@ -53,7 +88,7 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
       loadAssignments();
       showToast('Deleted Successfully');
     } catch (err) {
-        showToast('Delete failed',);
+      showToast('Delete failed');
     }
   };
 
@@ -65,7 +100,7 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
       });
       loadAssignments();
     } catch (err) {
-        showToast('Failed to mark completed');
+      showToast('Failed to mark completed');
     }
   };
 
@@ -77,6 +112,7 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
       return;
     }
     try {
+      setLoading(true);
       let res;
       if (editingAssignment) {
         res = await updateAssignment(editingAssignment.id, {
@@ -96,6 +132,7 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
       setFormData({title: '', due_date: ''});
       setEditingAssignment(null);
       setShowForm(false);
+      setFilterStatus('all');
       loadAssignments();
       showToast(res?.data?.message);
     } catch (err) {
@@ -105,7 +142,7 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
 
   const handleEdit = (assignment: Assignment) => {
     setEditingAssignment(assignment);
-    setFormData({ title: assignment.title, due_date: assignment.due_date });
+    setFormData({title: assignment.title, due_date: assignment.due_date});
     setShowForm(true);
   };
 
@@ -133,6 +170,18 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
     </View>
   );
 
+  const filteredAssignments = assignments
+  .filter(a => {
+    if (filterStatus === 'all') return true;
+    return a.status === filterStatus;
+  })
+  .sort((a, b) => {
+    const dateA = new Date(a.due_date).getTime();
+    const dateB = new Date(b.due_date).getTime();
+    return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
+  });
+
+
   return (
     <View style={styles.container}>
       {!loading && (
@@ -141,58 +190,83 @@ const AssignmentsScreen: React.FC<Props> = ({ route }) => {
           onPress={() => {
             setShowForm(!showForm);
             if (!showForm) {
-              setFormData({ title: '', due_date: '' });
+              setFormData({title: '', due_date: ''});
               setEditingAssignment(null);
             }
           }}
         />
       )}
-  
+
       {!loading && showForm && (
         <View style={styles.form}>
           <TextInput
             placeholder="Assignment Title"
             value={formData.title}
-            onChangeText={text =>
-              setFormData(prev => ({ ...prev, title: text }))
-            }
+            onChangeText={text => setFormData(prev => ({...prev, title: text}))}
             style={styles.input}
           />
           <TextInput
             placeholder="Due Date (YYYY-MM-DD)"
             value={formData.due_date}
             onChangeText={text =>
-              setFormData(prev => ({ ...prev, due_date: text }))
+              setFormData(prev => ({...prev, due_date: text}))
             }
             style={styles.input}
           />
           <Button title="Submit" onPress={handleSubmit} />
         </View>
       )}
-      {loading ? (
-        <FlatList
-          data={[1, 2, 3, 4]}
-          keyExtractor={(item) => item.toString()}
-          renderItem={renderSkeletonAssignment}
-          removeClippedSubviews={false}
-        />
-      ) : assignments.length === 0 ? (
-        <Text style={{ textAlign: 'center', marginTop: 16 }}>No assignments found.</Text>
-      ) : (
-        <FlatList
-          data={assignments}
-          keyExtractor={item => item.id.toString()}
-          renderItem={({ item }) => renderAssignmentItem(item)}
-          removeClippedSubviews={false}
-        />
+      {!loading && (
+        <>
+          <View style={styles.filterRow}>
+            {['all', 'pending', 'completed'].map(status => (
+              <Button
+                key={status}
+                title={status.charAt(0).toUpperCase() + status.slice(1)}
+                onPress={() => setFilterStatus(status as typeof filterStatus)}
+                color={filterStatus === status ? '#007bff' : '#999'}
+              />
+            ))}
+          </View>
+          <View style={{alignItems: 'center', marginBottom: 10}}>
+            <Button
+              title={`Sort: Due ${sortOrder === 'asc' ? '↑' : '↓'}`}
+              onPress={() =>
+                setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))
+              }
+            />
+          </View>
+        </>
       )}
+      {!loading && isOfflineData && (
+        <Text style={styles.offlineBanner}>⚠ Offline: Showing cached data</Text>
+      )}
+
+      <FlatList
+        data={loading ? [1, 2, 3, 4] : filteredAssignments}
+        keyExtractor={(item, index) =>
+          loading
+            ? `skeleton-${index}`
+            : item?.id?.toString() ?? index.toString()
+        }
+        renderItem={({item}) =>
+          loading ? renderSkeletonAssignment() : renderAssignmentItem(item)
+        }
+        ListEmptyComponent={
+          !loading ? (
+            <Text style={{textAlign: 'center', marginTop: 16}}>
+              No assignments found.
+            </Text>
+          ) : null
+        }
+        removeClippedSubviews={false}
+      />
     </View>
   );
-  
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: {flex: 1, padding: 16},
   card: {
     backgroundColor: '#e8e8e8',
     padding: 12,
@@ -244,6 +318,21 @@ const styles = StyleSheet.create({
     marginTop: 10,
     width: '50%',
   },
+  filterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 10,
+  },
+  offlineBanner: {
+    backgroundColor: '#ffe4b5',
+    color: '#333',
+    textAlign: 'center',
+    padding: 6,
+    borderRadius: 4,
+    marginBottom: 10,
+    fontWeight: '600',
+  },
+  
 });
 
 export default AssignmentsScreen;
