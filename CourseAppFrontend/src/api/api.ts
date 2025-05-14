@@ -3,6 +3,7 @@ import { Course, Assignment } from '../types';
 
 const API = axios.create({
   baseURL: 'https://university-companion-app.onrender.com/api',
+  timeout: 30*1000
 });
 
 // Courses
