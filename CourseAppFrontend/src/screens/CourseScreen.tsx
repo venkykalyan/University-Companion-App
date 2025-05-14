@@ -35,11 +35,11 @@ const CourseListScreen: React.FC<Props> = ({ navigation }) => {
       setLoading(true);
       const res = await getCourses();
   
-      if (Array.isArray(res.data)) {
+      if (Array.isArray(res.data) && res.data.length > 0) {
         setCourses(res.data);
         await storeData('courses', res.data);
       } else {
-        throw new Error('Invalid data format');
+        setCourses([]);
       }
     } catch (err) {
       showToast('Failed to fetch courses, loading from cache');
